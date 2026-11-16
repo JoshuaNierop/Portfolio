@@ -47,8 +47,6 @@ function stateColors(n){
   return all.slice(0,n);
 }
 
-function pieceArea(p){let a=0;for(const r of p)for(const c of r)a+=c;return a}
-
 // ═══ IMPORT PARSER ═══
 function parseHTML(html){
   const gxM=html.match(/gX\s*=\s*(\d+)/), gyM=html.match(/gY\s*=\s*(\d+)/);

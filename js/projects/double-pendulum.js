@@ -64,7 +64,6 @@ function fmtM(M,p=3){return M.map(r=>'['+r.map(v=>v.toFixed(p).padStart(9)).join
 function fmtV(v,p=3){return'['+v.map(x=>x.toFixed(p)).join(', ')+']'}
 
 function render(container){
-  const tRef=()=>TARGETS[target];
   container.innerHTML=`
     <div class="tab-bar"><button class="tab-btn active" data-t="play">Playground</button><button class="tab-btn" data-t="design">Control design method</button></div>
     <div id="dp-play"></div><div id="dp-design" style="display:none"></div>`;

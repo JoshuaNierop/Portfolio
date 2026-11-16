@@ -60,8 +60,6 @@ class Port {
     this.blockId   = null;      // set when added to a block
   }
 
-  get portKey() { return `${this.blockId}::${this.id}`; }
-
   isCompatible(otherPort) {
     if (this.direction === otherPort.direction) return false;
     if (this.type === 'any' || otherPort.type === 'any') return true;
@@ -794,9 +792,6 @@ class Pipeline {
     this.selected    = false;
   }
 
-  get fromKey() { return `${this.fromBlockId}::${this.fromPortId}`; }
-  get toKey()   { return `${this.toBlockId}::${this.toPortId}`; }
-
   resolveType(workspace) {
     const block = workspace.blocks.get(this.fromBlockId);
     if (!block) return 'any';
@@ -864,10 +859,6 @@ class Workspace {
     Bus.emit('workspace:view-changed', { x: this.viewX, y: this.viewY, zoom: this.zoom });
   }
 
-  panBy(dx, dy) {
-    this.setView(this.viewX + dx, this.viewY + dy, this.zoom);
-  }
-
   zoomAt(factor, screenX, screenY, containerRect) {
     const before = this._screenToWorld(screenX, screenY, containerRect);
     const newZoom = Math.max(0.15, Math.min(4, this.zoom * factor));
@@ -886,13 +877,6 @@ class Workspace {
     return {
       x: (screenX - containerRect.left - this.viewX) / this.zoom,
       y: (screenY - containerRect.top  - this.viewY) / this.zoom,
-    };
-  }
-
-  worldToScreen(worldX, worldY, containerRect) {
-    return {
-      x: worldX * this.zoom + this.viewX + containerRect.left,
-      y: worldY * this.zoom + this.viewY + containerRect.top,
     };
   }
 
@@ -935,13 +919,6 @@ class Workspace {
     this.pipelines.delete(pipelineId);
     Bus.emit('workspace:pipeline-removed', { pipelineId });
     if (recordHistory) this._saveSnapshot();
-  }
-
-  getPipelinesForPort(blockId, portId) {
-    return Array.from(this.pipelines.values()).filter(p =>
-      (p.fromBlockId === blockId && p.fromPortId === portId) ||
-      (p.toBlockId === blockId   && p.toPortId   === portId)
-    );
   }
 
   // ── Selection helpers ────────────────────────────────
@@ -1010,25 +987,6 @@ class Workspace {
     return true;
   }
 
-  loadFromData(json) {
-    let data;
-    try {
-      const parsed = JSON.parse(json);
-      const { _meta, ...rest } = parsed;
-      data = JSON.stringify(rest);
-    } catch (e) {
-      throw new Error('Invalid save file: ' + e.message);
-    }
-    this._deserialize(data);
-    this._history    = [];
-    this._historyIdx = -1;
-    this._saveSnapshot();
-  }
-
-  toFileData() {
-    return this._serialize();
-  }
-
   clear() {
     this.blocks.clear();
     this.pipelines.clear();
@@ -1059,8 +1017,6 @@ class Factory {
 
   get isRunning() { return this.state === 'running'; }
   get isPaused()  { return this.state === 'paused';  }
-  get isIdle()    { return this.state === 'idle';    }
-
   // ── Public API ──────────────────────────────────────────────────
 
   run(workspace) {
@@ -1415,10 +1371,6 @@ class Factory {
     Bus.emit('factory:index-updated', { address, entry, index: { ...this._globalIndex } });
   }
 
-  _getPortValue(blockId, portId) {
-    return this._portValues.get(`${blockId}::${portId}`)?.data;
-  }
-
   _getPortEnvelope(blockId, portId) {
     return this._portValues.get(`${blockId}::${portId}`) ?? null;
   }
@@ -1568,15 +1520,6 @@ function _indexSummary(ctx) {
 
   if (lines.length === 0) return '';
   return `\n=== Available outputs (${lines.length}) ===\n${lines.join('\n')}\n`;
-}
-
-function _indexLookup(ctx, { blockType, portType, blockName } = {}) {
-  const index = ctx?.index ?? {};
-  return Object.values(index).filter(e =>
-    (!blockType || e.blockType === blockType) &&
-    (!portType  || e.portType  === portType)  &&
-    (!blockName || e.blockName.toLowerCase().includes(blockName.toLowerCase()))
-  );
 }
 
 function _diffValues(a, b) {
@@ -2170,12 +2113,6 @@ class SelectionManager {
     this._emit();
   }
 
-  selectRect(worldX, worldY, worldW, worldH) {
-    const blocks = this._ws.getBlocksInRect(worldX, worldY, worldW, worldH);
-    this.selected = new Set(blocks.map(b => b.id));
-    this._emit();
-  }
-
   isSelected(blockId) { return this.selected.has(blockId); }
 
   getSelectedBlocks() {
@@ -2346,12 +2283,6 @@ class PipelineUI {
     return document.querySelector(
       `.factory-block[data-block-id="${blockId}"] .port-dot[data-port-id="${portId}"]`
     );
-  }
-
-  _makePath(from, to, type = 'any') {
-    const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    el.setAttribute('d', this._bezierD(from, to));
-    return el;
   }
 
   _bezierD(from, to) {
@@ -3690,13 +3621,6 @@ class BlockUI {
   _esc(str) {
     return String(str)
       .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  }
-
-  _formatResult(result) {
-    if (!result) return '';
-    const d = result.data;
-    if (typeof d === 'string') return d;
-    return JSON.stringify(d, null, 2);
   }
 
   // ── Keyboard shortcuts ────────────────────────────
@@ -5115,8 +5039,6 @@ class ContextMenu {
     this._el = null;
   }
 
-  setCopyBuffer(buf) { this._copyBuffer = buf; }
-  getCopyBuffer()    { return this._copyBuffer; }
 }
 
 
@@ -6090,122 +6012,6 @@ for block in order:
     </div>
   `;
   container.appendChild(desc);
-}
-
-// ── (legacy — removed, small mode now renders inline) ────────────────────
-function _afRenderSmallBlocks(preview, ws, dk) {
-  // No-op: small mode rendering is now handled within _afRenderSmall
-  preview.querySelectorAll('.af-small-block, .af-small-svg').forEach(el => el.remove());
-
-  const CAT_COLORS = {
-    'AI Agents': '#f472b6', 'Input / Output': '#4ade80', 'Logic': '#fb923c',
-    'Data': '#818cf8', 'Flow Control': '#34d399', 'Utilities': '#fbbf24'
-  };
-
-  // Render connections (SVG)
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.classList.add('af-small-svg');
-  svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;';
-  preview.appendChild(svg);
-
-  // Render blocks
-  ws.blocks.forEach(b => {
-    const typeDef = BlockRegistry.get(b.type);
-    if (!typeDef) return;
-    const cat = typeDef.category || 'Input / Output';
-    const col = CAT_COLORS[cat] || '#888';
-
-    const el = document.createElement('div');
-    el.classList.add('af-small-block');
-    el.style.cssText = `position:absolute;left:${b.x}px;top:${b.y}px;width:176px;border-radius:8px;font-size:11px;user-select:none;border:1.5px solid ${dk ? '#292524' : '#d6d3d1'};background:${dk ? '#1a1a1a' : '#fff'};box-shadow:${dk ? '0 2px 8px rgba(0,0,0,.3)' : '0 1px 4px rgba(0,0,0,.06)'};`;
-
-    // Status-based styling
-    if (b.status === 'done') {
-      el.style.borderColor = dk ? '#4ade80' : '#16a34a';
-      el.style.boxShadow = `0 0 8px ${dk ? '#4ade8020' : '#16a34a20'}`;
-    } else if (b.status === 'running') {
-      el.style.borderColor = dk ? '#fbbf24' : '#d97706';
-      el.style.boxShadow = `0 0 14px ${dk ? '#fbbf2430' : '#d9770630'}`;
-    } else if (b.status === 'error') {
-      el.style.borderColor = dk ? '#f87171' : '#dc2626';
-    }
-
-    // Header
-    const hd = document.createElement('div');
-    hd.style.cssText = `display:flex;align-items:center;gap:5px;padding:5px 8px;border-bottom:1px solid ${dk ? '#292524' : '#e7e5e4'};`;
-    const icon = document.createElement('span');
-    icon.style.cssText = `width:18px;height:18px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;background:${col};flex-shrink:0;font-weight:700;`;
-    icon.textContent = typeDef.icon || '?';
-    const name = document.createElement('span');
-    name.style.cssText = `flex:1;font-weight:600;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${dk ? '#e7e5e4' : '#1c1917'};`;
-    name.textContent = b.name || typeDef.name;
-    hd.append(icon, name);
-    el.appendChild(hd);
-
-    // Ports
-    const bd = document.createElement('div');
-    bd.style.cssText = 'padding:4px 0;';
-
-    const allPorts = [...(b.ports?.inputs || []), ...(b.ports?.outputs || [])];
-    allPorts.forEach(p => {
-      const isOut = p.direction === 'out';
-      const row = document.createElement('div');
-      row.style.cssText = `display:flex;align-items:center;gap:4px;padding:1px 8px;font-size:9px;color:${dk ? '#a8a29e' : '#78716c'};${isOut ? 'flex-direction:row-reverse;' : ''}`;
-      const dot = document.createElement('div');
-      dot.style.cssText = `width:9px;height:9px;border-radius:50%;border:2px solid ${dk ? '#525252' : '#a8a29e'};background:${dk ? '#262626' : '#fff'};flex-shrink:0;${isOut ? 'margin-right:-13px' : 'margin-left:-13px'};`;
-      dot.dataset.blockId = b.id;
-      dot.dataset.portId = p.id;
-      dot.dataset.isOut = isOut ? '1' : '0';
-      const lbl = document.createElement('span');
-      lbl.textContent = p.label;
-      row.append(dot, lbl);
-      bd.appendChild(row);
-    });
-
-    // Result preview
-    if (b.results && b.results.length > 0) {
-      const lastResult = b.results[b.results.length - 1];
-      const firstVal = lastResult ? Object.values(lastResult)[0] : null;
-      if (firstVal !== undefined && firstVal !== null) {
-        const res = document.createElement('div');
-        res.style.cssText = `margin:3px 8px 2px;padding:4px 5px;border-radius:4px;font-size:9px;font-family:'JetBrains Mono',monospace;word-break:break-word;max-height:56px;overflow-y:auto;line-height:1.4;background:${dk ? '#052e16' : '#f0fdf4'};color:${dk ? '#4ade80' : '#16a34a'};`;
-        res.textContent = String(firstVal).slice(0, 200);
-        bd.appendChild(res);
-      }
-    }
-
-    el.appendChild(bd);
-    preview.appendChild(el);
-  });
-
-  // Render connection lines
-  ws.pipelines.forEach(pipe => {
-    const fromBlock = ws.blocks.get(pipe.fromBlockId);
-    const toBlock = ws.blocks.get(pipe.toBlockId);
-    if (!fromBlock || !toBlock) return;
-
-    // Approximate port positions
-    const fromX = fromBlock.x + 176;
-    const fromY = fromBlock.y + 30;
-    const toX = toBlock.x;
-    const toY = toBlock.y + 30;
-    const dx = Math.max(Math.abs(toX - fromX) * 0.5, 40);
-
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', `M${fromX},${fromY} C${fromX + dx},${fromY} ${toX - dx},${toY} ${toX},${toY}`);
-    path.setAttribute('stroke', dk ? '#525252' : '#b8b8b8');
-    path.setAttribute('stroke-width', '1.5');
-    path.setAttribute('fill', 'none');
-    path.setAttribute('stroke-linecap', 'round');
-
-    // Color based on source block status
-    if (fromBlock.status === 'done') {
-      path.setAttribute('stroke', dk ? '#4ade80' : '#16a34a');
-      path.setAttribute('stroke-width', '2');
-    }
-
-    svg.appendChild(path);
-  });
 }
 
 // ── Expand to Full Mode ──────────────────────────────────────────────────
